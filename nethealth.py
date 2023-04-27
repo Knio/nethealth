@@ -42,8 +42,8 @@ class Ipv4:
   ttl: int
   protocol: int
   checksum: bytes = dataclasses.field(kw_only=True, default=b'\0\0')
-  source_address: int
-  destination_address: int
+  src: int
+  dst: int
   options: bytes
 
   def __bytes__(self):
@@ -59,8 +59,8 @@ class Ipv4:
         self.ttl,
         self.protocol,
         self.checksum,
-        self.source_address,
-        self.destination_address,
+        self.src,
+        self.dst,
       ) + self.options
       self.checksum = checksum(b)
     return b
@@ -76,8 +76,8 @@ class Ipv4:
       ttl,
       protocol,
       checksum,
-      source_address,
-      destination_address,
+      src,
+      dst,
     ) = struct.unpack(cls.FORMAT, bytes[:cls.FORMAT_LEN])
     return cls(
       version=version_ihl >> 4,
@@ -90,8 +90,8 @@ class Ipv4:
       ttl=ttl,
       protocol=protocol,
       checksum=checksum,
-      source_address=source_address,
-      destination_address=destination_address,
+      src=src,
+      dst=dst,
       options=bytes[cls.FORMAT_LEN:],
     )
 
@@ -133,6 +133,19 @@ class IcmpPing:
       data=data[cls.FORMAT_LEN:])
 
 
+@dataclasses.dataclass
+class Ping:
+  send_time: float = dataclasses.field(kw_only=True, default=0)
+  recv_time: float = dataclasses.field(kw_only=True, default=0)
+  seq: int = dataclasses.field(kw_only=True, default=0)
+  send_ip: str = dataclasses.field(kw_only=True, default='')
+  recv_ip: str = dataclasses.field(kw_only=True, default='')
+
+  @property
+  def lag(self):
+    return self.recv_time - self.send_time
+
+
 class NetHealth:
   host = collections.defaultdict(list)
   pings = {}
@@ -145,9 +158,14 @@ class NetHealth:
     self.socket.bind(('0.0.0.0', 0))
 
   def ping(self, ip, i, s):
-    self.pings[s] = ip
-    p = IcmpPing(typ=8, code=0, identifier=i, sequence=s, data=b'Hello World')
-    self.socket.sendto(bytes(p), (ip, 1))
+    p = Ping(
+      seq=s,
+      send_time=time.time(),
+      send_ip=ip,
+    )
+    self.pings[p.seq] = p
+    icmp = IcmpPing(typ=8, code=0, identifier=i, sequence=s, data=b'Hello World')
+    self.socket.sendto(bytes(icmp), (ip, 1))
 
   def start(self):
     self.running = True
@@ -170,9 +188,10 @@ class NetHealth:
       try:
         s += 1
         self.ping('142.250.64.238', i, s)
+        time.sleep(0.1)
       except:
         LOG.exception('Error in NetHealth loop')
-      time.sleep(1)
+        time.sleep(1)
 
   def run_recv(self):
     while self.running:
@@ -184,16 +203,38 @@ class NetHealth:
 
   def recv(self):
     data, host = self.socket.recvfrom(512)
+    # print((data, host))
     try:
       ip_header = Ipv4.from_bytes(data[:20])
-      print(ip_header)
+      # print(ip_header)
       # TODO read header first
       p = IcmpPing.from_bytes(data[20:])
-      print(p)
+      # print(p)
+      rq = self.pings.pop(p.sequence, None)
+      if not rq:
+        LOG.error("got echo reply we did not requst")
+      else:
+        rq.recv_time = time.time()
+        rq.recv_ip = ip_header.src
+        self.host[rq.send_ip].append(rq)
     except:
       LOG.exception('failed to parse IcmpPing')
 
-    print((data, host))
+
+class Dataset:
+  def __init__(self, data) -> None:
+    self.data = list(data)
+    self.max = 1
+    self.min = 0
+    if self.data:
+      self.max = max(self.data)
+      self.min = min(self.data)
+
+  def as_graph(self):
+    blocks = '▁▂▃▄▅▆▇'
+    return ''.join(blocks[int((len(blocks) - 1) * x / self.max)] for x in self.data)
+
+
 
 
 class NetTui:
@@ -202,8 +243,15 @@ class NetTui:
 
   def run(self):
     while 1:
-      print("Hello world!")
-      time.sleep(1)
+      # print("Hello world!")
+      for host, rqs in self.nh.host.items():
+        ds = Dataset(r.lag for r in rqs[-40:])
+        # print SOL
+        print('\033[F')
+        print(f'{host}: {ds.as_graph()} [max: {ds.max * 1000:.0f}, min: {ds.min * 1000:.0f}]', end='')
+
+
+      time.sleep(0.05)
 
 
 def main():
