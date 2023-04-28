@@ -3,6 +3,7 @@
 
 
 import argparse
+import enum
 import locale
 import os
 import sys
@@ -123,104 +124,138 @@ def t_unicode():
 
 
 class ANSI:
-    # https://en.wikipedia.org/wiki/ANSI_escape_code#Description
+  # https://en.wikipedia.org/wiki/ANSI_escape_code#Description
 
-    ESC = '\x1b'    # also known as '\033',  '\e',  '^['
-    CSI = '['       # control sequence introducer
-    OSC = ']'       # operating system command
+  ESC = '\x1b'    # also known as '\033',  '\e',  '^['
+  CSI = '['       # control sequence introducer
+  OSC = ']'       # operating system command
 
-    # CSI codes
-    class CONTROL:
-        SGR         = 'm'   # select graphical representation
-        MOUSE_ON    = 'h'
-        MOUSE_OFF   = 'l'
-        RESET       = 'c'
+  # CSI codes
+  class CONTROL:
+    SGR         = 'm'   # select graphical representation
+    MOUSE_ON    = 'h'
+    MOUSE_OFF   = 'l'
+    RESET       = 'c'
+
+    class CURSOR(enum.StrEnum):
+      UP              = 'A'
+      DOWN            = 'B'
+      FORWARD         = 'C'
+      BACK            = 'D'
+      DOWN_BEGINNING  = 'E'
+      UP_BEGINNING    = 'F'
+      COLUMN          = 'G'
+      POSITION        = 'H'
+
+    ERASE_DISPLAY   = 'J'
+    ERASE_LINE      = 'K'
+
+  class GRAPHICS(IntEnum):
+    RESET   = 0
+    BOLD    = 1
+    DIM     = 2
+    ITALIC  = 3
+    UNDERLINE=4
+    BLINK   = 5
+    BLINK2  = 6
+    REVERSE = 7
+    BLACK   = 8
+    STRIKE  = 9
+
+  class COLOR(IntEnum):
+    FG8     = 30
+    BG8     = 40
+    BRIGHT8 = 60
+    FG      = 38
+    BG      = 48
+    CS256   = 5
+    CS24B   = 2
+
+  class COLOR8(IntEnum):
+    BLACK   = 0
+    RED     = 1
+    GREEN   = 2
+    YELLOW  = 3
+    BLUE    = 4
+    MAGENTA = 5
+    CYAN    = 6
+    WHITE   = 7
+
+  class MOUSE(IntEnum):
+    X10               = 9       # doesn't work in mobaxterm
+    VT200             = 1000    # button clicks
+    VT200_HIGHLIGHT   = 1001    # doesn't work in mobaxterm
+    BTN_EVENT         = 1002    # button clicks plus motion when button down
+    ANY_EVENT         = 1003    # doesn't work in mobaxterm
+    FOCUS_EVENT       = 1004    # doesn't work in mobaxterm
+
+    ALTERNATE_SCROLL  = 1007    # ??
+    EXT_MODE          = 1005
+    SGR_EXT_MODE      = 1006    # different encoding for larger coordinates
+    URXVT_EXT_MODE    = 1015
+    PIXEL_POSITION    = 1016
 
 
-    class GRAPHICS(IntEnum):
-        RESET   = 0
-        BOLD    = 1
-        DIM     = 2
-        ITALIC  = 3
-        UNDERLINE=4
-        BLINK   = 5
-        BLINK2  = 6
-        REVERSE = 7
-        BLACK   = 8
-        STRIKE  = 9
+  @staticmethod
+  def graphics(x):
+    return f'{ANSI.ESC}{ANSI.CSI}{x}{ANSI.CONTROL.SGR}'
 
-    class COLOR(IntEnum):
-        FG8     = 30
-        BG8     = 40
-        BRIGHT8 = 60
-        FG      = 38
-        BG      = 48
-        CS256   = 5
-        CS24B   = 2
+  @staticmethod
+  def color_fg8(x):
+    return ANSI.graphics(ANSI.COLOR.FG8 + x)
 
-    class COLOR8(IntEnum):
-        BLACK   = 0
-        RED     = 1
-        GREEN   = 2
-        YELLOW  = 3
-        BLUE    = 4
-        MAGENTA = 5
-        CYAN    = 6
-        WHITE   = 7
+  @staticmethod
+  def color_bg8(x):
+    return ANSI.graphics(ANSI.COLOR.BG8 + x)
 
-    class MOUSE(IntEnum):
-        X10               = 9       # doesn't work in mobaxterm
-        VT200             = 1000    # button clicks
-        VT200_HIGHLIGHT   = 1001    # doesn't work in mobaxterm
-        BTN_EVENT         = 1002    # button clicks plus motion when button down
-        ANY_EVENT         = 1003    # doesn't work in mobaxterm
-        FOCUS_EVENT       = 1004    # doesn't work in mobaxterm
+  @staticmethod
+  def color_fg256(x):
+    return ANSI.graphics(f'{ANSI.COLOR.FG};{ANSI.COLOR.CS256};{x}')
 
-        ALTERNATE_SCROLL  = 1007    # ??
-        EXT_MODE          = 1005
-        SGR_EXT_MODE      = 1006    # different encoding for larger coordinates
-        URXVT_EXT_MODE    = 1015
-        PIXEL_POSITION    = 1016
+  @staticmethod
+  def color_bg256(x):
+    return ANSI.graphics(f'{ANSI.COLOR.BG};{ANSI.COLOR.CS256};{x}')
 
+  @staticmethod
+  def color_fg24b(r,g,b):
+    return ANSI.graphics(f'{ANSI.COLOR.FG};{ANSI.COLOR.CS24B};{r};{g};{b}')
 
-    @staticmethod
-    def graphics(x):
-        return f'{ANSI.ESC}{ANSI.CSI}{x}{ANSI.CONTROL.SGR}'
+  @staticmethod
+  def color_bg24b(r,g,b):
+    return ANSI.graphics(f'{ANSI.COLOR.BG};{ANSI.COLOR.CS24B};{r};{g};{b}')
 
-    @staticmethod
-    def color_fg8(x):
-        return ANSI.graphics(ANSI.COLOR.FG8 + x)
+  @staticmethod
+  def graphics_reset():
+    return ANSI.graphics(ANSI.GRAPHICS.RESET)
 
-    @staticmethod
-    def color_bg8(x):
-        return ANSI.graphics(ANSI.COLOR.BG8 + x)
+  @staticmethod
+  def control(*x):
+    return f'{ANSI.ESC}{ANSI.CSI}{";".join(map(str, x))}'
 
-    @staticmethod
-    def color_fg256(x):
-        return ANSI.graphics(f'{ANSI.COLOR.FG};{ANSI.COLOR.CS256};{x}')
+  @staticmethod
+  def mouse(x):
+    return ANSI.control('?', ANSI.CONTROL.MOUSE_ON)
 
-    @staticmethod
-    def color_bg256(x):
-        return ANSI.graphics(f'{ANSI.COLOR.BG};{ANSI.COLOR.CS256};{x}')
+  @staticmethod
+  def mouse_off(x):
+    return ANSI.control('?' , ANSI.CONTROL.MOUSE_OFF)
 
-    @staticmethod
-    def color_fg24b(r,g,b):
-        return ANSI.graphics(f'{ANSI.COLOR.FG};{ANSI.COLOR.CS24B};{r};{g};{b}')
+  @staticmethod
+  def cursor_column(col):
+    return ANSI.control(col, ANSI.CONTROL.CURSOR.COLUMN)
 
-    @staticmethod
-    def color_bg24b(r,g,b):
-        return ANSI.graphics(f'{ANSI.COLOR.BG};{ANSI.COLOR.CS24B};{r};{g};{b}')
+  @staticmethod
+  def cursor_pos(row, col):
+    return ANSI.control(row, col, ANSI.CONTROL.CURSOR.POSITION)
 
-    @staticmethod
-    def graphics_reset():
-        return ANSI.graphics(ANSI.GRAPHICS.RESET)
+  @staticmethod
+  def erase_display(x=2):
+    return ANSI.control(x, ANSI.CONTROL.ERASE_DISPLAY)
 
-    @staticmethod
-    def mouse(x):
-        return f'{ANSI.ESC}{ANSI.CSI}?{x}{ANSI.CONTROL.MOUSE_ON}'
+  @staticmethod
+  def erase_line(x=0):
+    return ANSI.control(x, ANSI.CONTROL.ERASE_LINE)
 
-    def mouse_off(x):
-        return f'{ANSI.ESC}{ANSI.CSI}?{x}{ANSI.CONTROL.MOUSE_OFF}'
 
 
 def t_colors():
@@ -335,7 +370,7 @@ def t_mouse():
                 break
             if parse_mouse_event(c):
                 # handle highlight tracking?
-                print(f'{ANSI.ESC}{ANSI.CSI}1;10;10;20;20T')
+                print(ANSI.control('1;10;10;20;20T'))
 
     finally:
         # reset mouse tracking
